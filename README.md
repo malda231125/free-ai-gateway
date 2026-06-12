@@ -197,7 +197,55 @@ Swagger 문서: `http://localhost:3000/docs`
 - `order`/`only`/`ignore`로 특정 프로바이더 고정·제외, `max_price`로 가격 상한 강제 가능.
 - **시사점**: OpenRouter에서 민감한 데이터를 다룬다면 `data_collection: "deny"` + `zdr: true`를 켜는 것이 사실상 필수입니다. 기본값은 보호가 꺼진 상태입니다.
 
-> 다른 프로바이더(Groq, Cerebras, Mistral, GitHub Models)도 각자 약관이 있으며, 특히 **무료 등급의 데이터 학습 사용 여부**는 서비스마다 다르니 민감한 데이터를 다루기 전에 각 약관을 확인하세요.
+## Groq · Cerebras · Mistral · GitHub Models 약관/정책 요약
+
+나머지 4개 프로바이더의 핵심 요약입니다 (**분석일: 2026-06-12**). 요약은 참고용이며, 정확한 내용은 반드시 각 원문을 확인하세요.
+
+### Groq
+
+원문: [이용약관](https://groq.com/terms-of-use) (2025-10-15) · [개인정보처리방침](https://groq.com/privacy-policy) (2025-11-12) · [Your Data in GroqCloud](https://console.groq.com/docs/your-data) · [Services Agreement](https://console.groq.com/docs/legal/services-agreement)
+
+- **무료 프로바이더 중 데이터 정책이 가장 좋은 편입니다.** 고객이 명시적으로 허용하지 않는 한 입력/출력을 모델 학습·파인튜닝에 사용할 수 없다고 Services Agreement에 명시돼 있습니다.
+- **추론 요청은 기본적으로 보관하지 않습니다.** 장애 해결·악용 조사 시에만 최대 30일 로깅하며, 콘솔 Data Controls에서 **ZDR(Zero Data Retention)**을 켤 수 있습니다.
+- 입력/출력의 지식재산권은 고객이 보유합니다.
+- 웹사이트 약관 기준 책임 한도 미화 $100, 캘리포니아법 준거(산타클라라 카운티 관할).
+
+### Cerebras
+
+원문: [개인정보처리방침](https://www.cerebras.ai/privacy-policy) · [요금/무료 한도](https://www.cerebras.ai/pricing)
+
+- 개인정보처리방침에 **추론 서비스의 입력/출력을 보관하지 않으며**, 서비스 제공에 불필요해진 로그는 삭제한다고 명시돼 있습니다.
+- 무료 등급: 일 100만 토큰, 분당 30요청 수준(카드 불필요). 업계 최속(초당 2,000토큰급) 추론이 강점입니다.
+- 무료 등급의 모델 카탈로그가 자주 바뀌니(`/v1/models`로 확인) 모델 404가 나면 기본 모델을 갱신하세요.
+
+### Mistral (La Plateforme)
+
+원문: [법률 센터](https://legal.mistral.ai/terms) (2025-11-28) · [개인정보처리방침](https://legal.mistral.ai/terms/privacy-policy) (발효 2026-04-08)
+
+- **유료 API는 입력/출력을 학습에 사용하지 않는다고 명시**돼 있습니다 ("we do not use your Input and Output to train ... the paid version of our APIs").
+- 뒤집어 말하면 **무료 등급(Experiment 플랜)은 이 보장의 대상이 아닙니다.** 무료 등급은 데이터 학습 활용 동의가 조건일 수 있으니 민감 데이터를 넣지 마세요. (Le Chat 무료는 계정 설정에서 학습 사용 거부 가능)
+- 보관: 일반 API 입력/출력은 생성 후 30일, 에이전트 API는 계정 종료 시까지.
+- EU 업체 우선 사용 원칙(GDPR), 사용자 권리(접근·삭제·거부 등) 폭넓게 보장. 음성 복제 금지, 사용 정책(Usage Policy) 준수 의무.
+
+### GitHub Models
+
+원문: [추가 제품 약관](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features) · [Responsible Use of GitHub Models](https://docs.github.com/en/github-models/responsible-use-of-github-models)
+
+- 약관상 GitHub Models 조항은 짧습니다: **"모델을 호스팅하는 회사의 약관과 모델 라이선스가 적용된다"** — 즉 데이터의 학습 사용 여부가 GitHub 차원에서 보장되지 않고 모델별(OpenAI 등 호스팅사)로 다릅니다.
+- **프로덕션 용도가 아닙니다.** 공식 문서에 "학습·실험·개념 증명(PoC) 활동용으로 설계되었고 프로덕션 사용 사례용이 아니다"라고 명시돼 있습니다.
+- 끌 수 없는 콘텐츠 필터가 항상 적용되며, 무료 한도는 분당/일간/토큰/동시성 등 여러 축으로 제한됩니다(구체 수치는 모델 등급별 상이).
+
+## 데이터 정책 한눈 비교 (분석일 2026-06-12 기준)
+
+| Provider | 무료 등급 입력의 학습 사용 | 비고 |
+|---|---|---|
+| Google AI Studio | **사용함** (명시) | 유료 등급은 미사용 명시 |
+| Groq | **사용 안 함** (명시) | 기본 무보관 + ZDR 옵션 |
+| Cerebras | 사용 안 함으로 해석 (입출력 미보관 명시) | |
+| Mistral | 유료만 미사용 보장 — **무료는 보장 없음** | 보관 30일 |
+| NVIDIA | **불명** (공개 문서에 명시 없음) | 공개 데이터 실험용 권장 |
+| OpenRouter | 하위 프로바이더별 상이 | `data_collection: "deny"` + `zdr: true` 권장 |
+| GitHub Models | 모델 호스팅사별 상이 | 프로덕션 용도 금지 |
 
 ## License
 
