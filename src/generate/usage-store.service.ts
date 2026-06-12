@@ -89,6 +89,26 @@ export class UsageStoreService implements OnModuleDestroy {
     return this.memory.filter((m) => m.provider === provider && m.keyIndex === keyIndex && m.ts >= sinceMs).length;
   }
 
+  tokensSince(provider: string, keyIndex: number, sinceMs: number): number {
+    if (this.db) {
+      const row = this.db
+        .prepare('SELECT sum(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) AS t FROM calls WHERE provider = ? AND key_idx = ? AND ts >= ?')
+        .get(provider, keyIndex, sinceMs);
+      return Number(row?.t || 0);
+    }
+    return 0; // 인메모리 폴백은 토큰 미추적 (요청 수 한도만 적용)
+  }
+
+  tokensProviderSince(provider: string, sinceMs: number): number {
+    if (this.db) {
+      const row = this.db
+        .prepare('SELECT sum(COALESCE(prompt_tokens,0) + COALESCE(completion_tokens,0)) AS t FROM calls WHERE provider = ? AND ts >= ?')
+        .get(provider, sinceMs);
+      return Number(row?.t || 0);
+    }
+    return 0;
+  }
+
   countProviderSince(provider: string, sinceMs: number): number {
     if (this.db) {
       const row = this.db.prepare('SELECT count(*) AS c FROM calls WHERE provider = ? AND ts >= ?').get(provider, sinceMs);

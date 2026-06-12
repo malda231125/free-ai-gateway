@@ -15,8 +15,8 @@ export interface ProviderConfig {
   apiKeyEnv: string;
   /** model 미지정 시 사용할 무료 등급 기본 모델 */
   defaultModel: string;
-  /** 게이트웨이 자체 한도(보수적 추정치). 실제 한도는 각 서비스 문서 기준. */
-  limits: { rpm: number; rpd: number };
+  /** 게이트웨이 자체 한도(보수적 추정치, 키 1개 기준). 실제 한도는 각 서비스 문서 기준. tpd = 일간 토큰. */
+  limits: { rpm: number; rpd: number; tpd?: number };
   /** 키 발급 안내 URL */
   signupUrl: string;
   /** AI 라우터에게 제공할 모델 특성 설명 */
@@ -38,7 +38,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     baseUrl: 'https://api.groq.com/openai/v1',
     apiKeyEnv: 'GROQ_API_KEY',
     defaultModel: 'llama-3.3-70b-versatile',
-    limits: { rpm: 30, rpd: 1000 },
+    limits: { rpm: 30, rpd: 1000, tpd: 100_000 },
     signupUrl: 'https://console.groq.com/keys',
     description: 'Llama 3.3 70B를 초고속(200ms급) 서빙. 짧은 답변·실시간성이 중요한 작업·간단한 질문에 최적. 한국어 보통.',
   },
@@ -46,7 +46,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     baseUrl: 'https://api.cerebras.ai/v1',
     apiKeyEnv: 'CEREBRAS_API_KEY',
     defaultModel: 'gpt-oss-120b',
-    limits: { rpm: 30, rpd: 1000 },
+    limits: { rpm: 30, rpd: 1000, tpd: 1_000_000 },
     signupUrl: 'https://cloud.cerebras.ai',
     description: '오픈 모델(gpt-oss-120b)을 업계 최속(초당 2,000토큰)으로 서빙. 긴 출력 생성을 빠르게 받을 때 최적. 혼잡 잦음.',
   },
@@ -54,7 +54,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     baseUrl: 'https://api.mistral.ai/v1',
     apiKeyEnv: 'MISTRAL_API_KEY',
     defaultModel: 'mistral-small-latest',
-    limits: { rpm: 2, rpd: 1000 },
+    limits: { rpm: 2, rpd: 1000, tpd: 30_000_000 },
     signupUrl: 'https://console.mistral.ai/api-keys',
     description: 'Mistral Small. 분당 2회 제한으로 느리지만 월 한도가 매우 큼. 급하지 않은 배치성 작업에 적합. 유럽어 강점.',
   },

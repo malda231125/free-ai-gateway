@@ -1,10 +1,19 @@
 # Free AI Gateway
 
+**The AI-routed gateway for free LLM APIs — it reads your prompt and picks the right free model.**
+
+[![CI](https://github.com/malda231125/free-ai-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/malda231125/free-ai-gateway/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 **Language**: English | [한국어](README.ko.md)
 
-A NestJS gateway that bundles free AI APIs behind a **single endpoint**.
-Send a prompt and optionally pick a provider via enum.
-**If no provider is specified, an AI router (Gemini Flash-Lite) analyzes your prompt and automatically picks the best free model** — Groq for speed-critical short tasks, Gemini for Korean translation and complex reasoning, NVIDIA for code, and so on. Providers that hit their quota are automatically excluded, and failed calls fall back to the next-best candidate.
+Most free-tier aggregators rotate keys by *quota*. This gateway routes by **what your prompt actually needs**: a fast AI router (Gemini Flash-Lite) reads each request and dispatches it to the best free model — Groq for speed-critical short tasks, Gemini for translation and complex reasoning, NVIDIA for code. One OpenAI-compatible endpoint, seven free providers, per-key quota tracking (requests *and* tokens), automatic 429 cooldowns and fallback.
+
+- 🧠 **Prompt-aware AI routing** — not round-robin; an LLM picks the right model per request
+- 🔌 **OpenAI-compatible** — point any OpenAI SDK at it, streaming included
+- 🔑 **Key pooling** — stack multiple keys per provider, limits scale automatically
+- 📊 **Persistent quota tracking** — SQLite audit log; request- and token-based limits survive restarts
+- 🔍 **Terms transparency** — we read all 7 providers' ToS/privacy policies so you know [who trains on your free-tier data](#data-policy-at-a-glance-as-of-2026-06-12)
 
 ```bash
 curl -X POST http://localhost:3000/v1/generate \
@@ -79,6 +88,15 @@ Calling a provider without a key returns 503 with a signup URL.
 > No dotenv is bundled — load `.env` in your shell (`export $(cat .env | xargs)`)
 > or use your deployment platform's environment settings (Render, Cloud Run, etc.).
 
+### Docker
+
+```bash
+cp .env.example .env   # fill in your keys
+docker compose up -d   # http://localhost:3000
+```
+
+Usage data persists in `./data` via the compose volume. Or build manually: `docker build -t free-ai-gateway . && docker run -p 3000:3000 --env-file .env free-ai-gateway`.
+
 ## OpenAI-Compatible Endpoint (drop-in)
 
 `POST /v1/chat/completions` speaks the standard OpenAI protocol — multi-turn `messages`, `temperature`, `stream`, etc. Point any OpenAI SDK at the gateway and it just works:
@@ -137,7 +155,7 @@ Specifying `provider` bypasses routing and calls that provider directly (`routin
 
 ## Built-in Quota Management & Persistence
 
-The gateway **counts requests per minute and per day for every provider × key**, blocking with a 429 (including a retry-after hint) before you blow through a free quota. Every call is recorded in a **SQLite audit log** (provider, key, model, status, latency, tokens), and the counters are computed from those records — so **usage survives restarts and sleep/wake cycles**. If SQLite is unavailable it falls back to in-memory tracking. Data lives in `./data/usage.db` (override with `GATEWAY_DATA_DIR`). Adjust the limits in [`src/generate/providers.config.ts`](src/generate/providers.config.ts).
+The gateway **counts requests per minute/day AND tokens per day for every provider × key** (token caps apply where the provider's real limit is token-based: Groq, Cerebras, Mistral), blocking with a 429 (including a retry-after hint) before you blow through a free quota. Every call is recorded in a **SQLite audit log** (provider, key, model, status, latency, tokens), and the counters are computed from those records — so **usage survives restarts and sleep/wake cycles**. If SQLite is unavailable it falls back to in-memory tracking. Data lives in `./data/usage.db` (override with `GATEWAY_DATA_DIR`). Adjust the limits in [`src/generate/providers.config.ts`](src/generate/providers.config.ts).
 
 Check usage anytime via `GET /v1/usage` — per-provider calls/tokens/avg latency for the last 24h plus the 20 most recent calls.
 

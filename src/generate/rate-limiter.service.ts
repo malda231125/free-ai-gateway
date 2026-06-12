@@ -5,9 +5,9 @@ import { UsageStoreService } from './usage-store.service';
 
 export interface LimitCheck {
   allowed: boolean;
-  reason?: 'rpm' | 'rpd' | 'cooldown' | 'no-key';
+  reason?: 'rpm' | 'rpd' | 'tpd' | 'cooldown' | 'no-key';
   retryAfterSeconds?: number;
-  usage: { rpm: string; rpd: string; keys: number; cooling: number };
+  usage: { rpm: string; rpd: string; tpd?: string; keys: number; cooling: number };
 }
 
 /**
@@ -30,16 +30,19 @@ export class RateLimiterService {
     const now = Date.now();
     const rpmTotal = this.usageStore.countProviderSince(provider, now - 60_000);
     const rpdTotal = this.usageStore.countProviderSince(provider, now - 86_400_000);
-    const usage = {
+    const tpdTotal = limits.tpd ? this.usageStore.tokensProviderSince(provider, now - 86_400_000) : 0;
+    const usage: LimitCheck['usage'] = {
       rpm: `${rpmTotal}/${limits.rpm * Math.max(totalKeys, 1)}`,
       rpd: `${rpdTotal}/${limits.rpd * Math.max(totalKeys, 1)}`,
       keys: totalKeys,
       cooling,
     };
+    if (limits.tpd) usage.tpd = `${tpdTotal}/${limits.tpd * Math.max(totalKeys, 1)}`;
     if (!totalKeys) return { allowed: false, reason: 'no-key', usage };
     if (this.pickKeyIndex(provider) !== null) return { allowed: true, usage };
     if (cooling >= totalKeys) return { allowed: false, reason: 'cooldown', retryAfterSeconds: 60, usage };
-    const reason = rpmTotal >= limits.rpm * totalKeys ? 'rpm' : 'rpd';
+    let reason: 'rpm' | 'rpd' | 'tpd' = rpmTotal >= limits.rpm * totalKeys ? 'rpm' : 'rpd';
+    if (limits.tpd && tpdTotal >= limits.tpd * totalKeys) reason = 'tpd';
     return { allowed: false, reason, retryAfterSeconds: reason === 'rpm' ? 60 : 3600, usage };
   }
 
@@ -57,6 +60,7 @@ export class RateLimiterService {
       if (rpm >= limits.rpm) continue;
       const rpd = this.usageStore.countSince(provider, idx, now - 86_400_000);
       if (rpd >= limits.rpd) continue;
+      if (limits.tpd && this.usageStore.tokensSince(provider, idx, now - 86_400_000) >= limits.tpd) continue;
       return idx;
     }
     return null;

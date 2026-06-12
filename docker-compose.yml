@@ -1,0 +1,10 @@
+services:
+  gateway:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env # 사용할 프로바이더 키만 채우면 됩니다 (.env.example 참고)
+    volumes:
+      - ./data:/app/data # 사용량 DB 영속화
+    restart: unless-stopped

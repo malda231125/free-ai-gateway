@@ -1,10 +1,19 @@
 # Free AI Gateway
 
+**프롬프트를 읽고 알맞은 무료 모델로 보내주는 AI 라우팅 게이트웨이.**
+
+[![CI](https://github.com/malda231125/free-ai-gateway/actions/workflows/ci.yml/badge.svg)](https://github.com/malda231125/free-ai-gateway/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 **언어**: [English](README.md) | 한국어
 
-무료로 제공되는 AI API들을 **하나의 엔드포인트**로 묶어주는 NestJS 게이트웨이입니다.
-프롬프트 하나만 보내면 되고, 원하는 서비스를 enum으로 골라 쓸 수도 있습니다.
-**프로바이더를 지정하지 않으면 AI 라우터(Gemini Flash-Lite)가 프롬프트를 분석해 가장 적합한 무료 모델을 자동 선택합니다** — 속도가 중요한 짧은 작업은 Groq, 한국어 번역·복잡한 추론은 Gemini, 코드 작업은 NVIDIA 식으로요. 한도가 소진된 프로바이더는 후보에서 자동 제외되고, 호출 실패 시 차선 후보로 폴백합니다.
+대부분의 무료 티어 통합 도구는 "어느 키가 한도가 남았나"로 돌립니다. 이 게이트웨이는 **프롬프트가 실제로 필요로 하는 것**으로 라우팅합니다: 빠른 AI 라우터(Gemini Flash-Lite)가 요청을 읽고 가장 적합한 무료 모델로 보냅니다 — 속도가 생명인 짧은 작업은 Groq, 번역·복잡한 추론은 Gemini, 코드는 NVIDIA. OpenAI 호환 엔드포인트 하나, 무료 프로바이더 7개, 키별 사용량 추적(요청 수 + 토큰 수), 자동 429 쿨다운과 폴백까지.
+
+- 🧠 **프롬프트 인식 AI 라우팅** — 라운드로빈이 아니라 LLM이 요청마다 적합 모델을 선택
+- 🔌 **OpenAI 호환** — OpenAI SDK를 그대로 연결, 스트리밍 지원
+- 🔑 **키 풀링** — 프로바이더당 키 여러 개, 한도가 자동으로 늘어남
+- 📊 **영속 사용량 추적** — SQLite 감사 로그, 요청·토큰 기준 한도가 재시작 후에도 유지
+- 🔍 **약관 투명성** — 7개사 약관을 직접 분석해 [무료 등급에서 누가 내 데이터를 학습하는지](#데이터-정책-한눈-비교-분석일-2026-06-12-기준) 정리
 
 ```bash
 curl -X POST http://localhost:3000/v1/generate \
@@ -79,6 +88,15 @@ Swagger 문서: `http://localhost:3000/docs`
 > dotenv를 따로 안 쓰므로 `.env`는 셸에서 로드하거나(`export $(cat .env | xargs)`),
 > 배포 플랫폼(Render, Cloud Run 등)의 환경변수 설정을 사용하세요.
 
+### Docker
+
+```bash
+cp .env.example .env   # 키 채우기
+docker compose up -d   # http://localhost:3000
+```
+
+사용량 데이터는 compose 볼륨으로 `./data`에 영속화됩니다. 수동 빌드: `docker build -t free-ai-gateway . && docker run -p 3000:3000 --env-file .env free-ai-gateway`
+
 ## OpenAI 호환 엔드포인트 (드롭인)
 
 `POST /v1/chat/completions`는 표준 OpenAI 프로토콜을 그대로 지원합니다 — 멀티턴 `messages`, `temperature`, `stream` 등. OpenAI SDK의 base_url만 게이트웨이로 바꾸면 코드 수정 없이 동작합니다:
@@ -137,7 +155,7 @@ print(resp.choices[0].message.content)
 
 ## 내장 한도 관리 & 영속화
 
-게이트웨이가 **프로바이더×키 단위로 분당/일간 요청 수를 카운트**해서, 무료 한도를 넘기 전에 429로 차단하고 재시도 가능 시각을 알려줍니다. 모든 호출은 **SQLite 감사 로그**(프로바이더/키/모델/상태/지연시간/토큰)에 기록되고 카운터도 이 기록에서 계산되므로, **재시작·슬립 후에도 사용량이 유지**됩니다. SQLite를 못 쓰는 환경에선 인메모리로 폴백합니다. 데이터는 `./data/usage.db`에 저장됩니다(`GATEWAY_DATA_DIR`로 변경 가능). 한도 값은 [`src/generate/providers.config.ts`](src/generate/providers.config.ts)에서 조정할 수 있습니다.
+게이트웨이가 **프로바이더×키 단위로 분당/일간 요청 수와 일간 토큰 수를 카운트**해서(실제 한도가 토큰 기준인 Groq·Cerebras·Mistral은 토큰 상한 적용), 무료 한도를 넘기 전에 429로 차단하고 재시도 가능 시각을 알려줍니다. 모든 호출은 **SQLite 감사 로그**(프로바이더/키/모델/상태/지연시간/토큰)에 기록되고 카운터도 이 기록에서 계산되므로, **재시작·슬립 후에도 사용량이 유지**됩니다. SQLite를 못 쓰는 환경에선 인메모리로 폴백합니다. 데이터는 `./data/usage.db`에 저장됩니다(`GATEWAY_DATA_DIR`로 변경 가능). 한도 값은 [`src/generate/providers.config.ts`](src/generate/providers.config.ts)에서 조정할 수 있습니다.
 
 `GET /v1/usage`로 최근 24시간 프로바이더별 호출 수/토큰/평균 지연시간과 최근 호출 20건을 언제든 확인할 수 있습니다.
 
