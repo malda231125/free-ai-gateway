@@ -21,7 +21,7 @@ curl -X POST http://localhost:3000/v1/generate \
 ```json
 {
   "provider": "GOOGLE",
-  "model": "gemini-3.5-flash",
+  "model": "gemini-flash-latest",
   "text": "Hello",
   "usage": { "prompt_tokens": 12, "completion_tokens": 2 },
   "latencyMs": 820,
@@ -35,12 +35,12 @@ curl -X POST http://localhost:3000/v1/generate \
 
 | Provider (enum) | 서비스 | 무료 한도 (대략) | 기본 모델 | 키 발급 |
 |---|---|---|---|---|
-| `GOOGLE` (기본값) | [Google AI Studio](https://aistudio.google.com) | Flash 계열 일 1,500요청, 100만 토큰 컨텍스트, 멀티모달 | `gemini-3.5-flash` | [발급](https://aistudio.google.com/apikey) |
+| `GOOGLE` (기본값) | [Google AI Studio](https://aistudio.google.com) | Flash 계열 일 1,500요청, 100만 토큰 컨텍스트, 멀티모달 | `gemini-2.5-flash` | [발급](https://aistudio.google.com/apikey) |
 | `GROQ` | [Groq](https://groq.com) | Llama 70B 분당 30회 / 일 1,000회, 초고속 추론 | `llama-3.3-70b-versatile` | [발급](https://console.groq.com/keys) |
-| `CEREBRAS` | [Cerebras](https://cloud.cerebras.ai) | 일 100만 토큰, 초당 2,000토큰(업계 최속) | `llama-3.3-70b` | [발급](https://cloud.cerebras.ai) |
+| `CEREBRAS` | [Cerebras](https://cloud.cerebras.ai) | 일 100만 토큰, 초당 2,000토큰(업계 최속) | `gpt-oss-120b` | [발급](https://cloud.cerebras.ai) |
 | `MISTRAL` | [Mistral La Plateforme](https://mistral.ai) | 월 10억 토큰 (분당 2회로 느림 — 배치용) | `mistral-small-latest` | [발급](https://console.mistral.ai/api-keys) |
 | `NVIDIA` | [NVIDIA Build (NIM)](https://build.nvidia.com) | 가입 시 1,000크레딧(신청 시 최대 5,000), 분당 40회, 대형 오픈모델 다수 | `meta/llama-3.3-70b-instruct` | [발급](https://build.nvidia.com) |
-| `OPENROUTER` | [OpenRouter](https://openrouter.ai) | `:free` 모델 일 50회 (잔액 $10 보유 시 일 1,000회) | `meta-llama/llama-3.3-70b-instruct:free` | [발급](https://openrouter.ai/settings/keys) |
+| `OPENROUTER` | [OpenRouter](https://openrouter.ai) | `:free` 모델 일 50회 (잔액 $10 보유 시 일 1,000회) | `google/gemma-4-26b-a4b-it:free` | [발급](https://openrouter.ai/settings/keys) |
 | `GITHUB` | [GitHub Models](https://github.com/marketplace/models) | GitHub 계정만으로 GPT-4o-mini 등 100+ 모델 (등급별 일일 한도) | `openai/gpt-4o-mini` | [PAT 발급](https://github.com/settings/tokens) |
 
 ### 어떤 걸 골라야 하나

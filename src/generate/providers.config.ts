@@ -27,7 +27,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
   [AiProvider.GOOGLE]: {
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     apiKeyEnv: 'GOOGLE_AI_API_KEY',
-    defaultModel: 'gemini-3.5-flash',
+    defaultModel: 'gemini-2.5-flash',
     limits: { rpm: 10, rpd: 1500 },
     signupUrl: 'https://aistudio.google.com/apikey',
   },
@@ -41,7 +41,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
   [AiProvider.CEREBRAS]: {
     baseUrl: 'https://api.cerebras.ai/v1',
     apiKeyEnv: 'CEREBRAS_API_KEY',
-    defaultModel: 'llama-3.3-70b',
+    defaultModel: 'gpt-oss-120b',
     limits: { rpm: 30, rpd: 1000 },
     signupUrl: 'https://cloud.cerebras.ai',
   },
@@ -62,7 +62,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
   [AiProvider.OPENROUTER]: {
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKeyEnv: 'OPENROUTER_API_KEY',
-    defaultModel: 'meta-llama/llama-3.3-70b-instruct:free',
+    defaultModel: 'google/gemma-4-26b-a4b-it:free',
     limits: { rpm: 20, rpd: 50 },
     signupUrl: 'https://openrouter.ai/settings/keys',
   },
