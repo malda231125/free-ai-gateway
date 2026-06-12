@@ -9,7 +9,7 @@ export class GenerateDto {
   @MaxLength(100_000)
   prompt!: string;
 
-  @ApiPropertyOptional({ enum: AiProvider, description: '사용할 서비스. 미지정 시 GOOGLE(Gemini)', example: AiProvider.GOOGLE })
+  @ApiPropertyOptional({ enum: AiProvider, description: '사용할 서비스. 미지정 시 AI 라우터가 프롬프트에 적합한 모델을 자동 선택', example: AiProvider.GOOGLE })
   @IsOptional()
   @IsEnum(AiProvider)
   provider?: AiProvider;

@@ -1,7 +1,8 @@
 # Free AI Gateway
 
 무료로 제공되는 AI API들을 **하나의 엔드포인트**로 묶어주는 NestJS 게이트웨이입니다.
-프롬프트 하나만 보내면 되고, 원하는 서비스를 enum으로 골라 쓸 수 있습니다. 따로 지정하지 않으면 Google Gemini를 사용합니다.
+프롬프트 하나만 보내면 되고, 원하는 서비스를 enum으로 골라 쓸 수도 있습니다.
+**프로바이더를 지정하지 않으면 AI 라우터(Gemini Flash-Lite)가 프롬프트를 분석해 가장 적합한 무료 모델을 자동 선택합니다** — 속도가 중요한 짧은 작업은 Groq, 한국어 번역·복잡한 추론은 Gemini, 코드 작업은 NVIDIA 식으로요. 한도가 소진된 프로바이더는 후보에서 자동 제외되고, 호출 실패 시 차선 후보로 폴백합니다.
 
 ```bash
 curl -X POST http://localhost:3000/v1/generate \
@@ -21,11 +22,19 @@ curl -X POST http://localhost:3000/v1/generate \
 ```json
 {
   "provider": "GOOGLE",
-  "model": "gemini-flash-latest",
+  "model": "gemini-2.5-flash",
   "text": "Hello",
   "usage": { "prompt_tokens": 12, "completion_tokens": 2 },
   "latencyMs": 820,
-  "gatewayUsage": { "rpm": "1/10", "rpd": "1/1500" }
+  "gatewayUsage": { "rpm": "1/10", "rpd": "1/1500" },
+  "routing": {
+    "mode": "auto",
+    "recommended": "GOOGLE",
+    "reason": "한국어 번역은 종합 품질 최상인 Gemini가 가장 적합합니다.",
+    "routerModel": "gemini-2.5-flash-lite",
+    "fallbackUsed": false,
+    "attempts": []
+  }
 }
 ```
 
@@ -75,7 +84,7 @@ Swagger 문서: `http://localhost:3000/docs`
 | 필드 | 필수 | 설명 |
 |---|---|---|
 | `prompt` | O | 모델에 전달할 프롬프트 |
-| `provider` | X | `GOOGLE` `GROQ` `CEREBRAS` `MISTRAL` `NVIDIA` `OPENROUTER` `GITHUB` (기본 `GOOGLE`) |
+| `provider` | X | `GOOGLE` `GROQ` `CEREBRAS` `MISTRAL` `NVIDIA` `OPENROUTER` `GITHUB` (미지정 시 AI 자동 라우팅) |
 | `model` | X | 프로바이더 기본 모델 대신 사용할 모델 ID |
 
 ### `GET /v1/providers`
@@ -85,6 +94,16 @@ Swagger 문서: `http://localhost:3000/docs`
 ### `GET /health`
 
 헬스체크.
+
+## AI 스마트 라우팅 (provider 미지정 시)
+
+1. **후보 선정** — API 키가 설정돼 있고 게이트웨이 한도가 남은 프로바이더만 후보로 추립니다.
+2. **AI 추천** — 빠른 모델(`gemini-2.5-flash-lite`)에게 후보 목록(모델별 강점 설명 포함)과 사용자 프롬프트를 주고 가장 적합한 프로바이더를 JSON으로 추천받습니다. 이 호출도 구글 한도로 카운트됩니다.
+3. **호출 + 폴백** — 추천 프로바이더를 호출하고, 실패(업스트림 혼잡 등)하면 나머지 후보를 정적 우선순위로 순차 시도합니다.
+4. **안전장치** — 라우터 호출이 실패하거나 구글 한도가 없으면 AI 추천을 건너뛰고 정적 우선순위(GOOGLE → GROQ → CEREBRAS → NVIDIA → GITHUB → OPENROUTER → MISTRAL)로 동작합니다.
+5. 응답의 `routing` 블록에 추천 모델·이유·폴백 이력이 투명하게 담깁니다.
+
+`provider`를 명시하면 라우팅 없이 해당 프로바이더를 직접 호출합니다(`routing.mode: "manual"`).
 
 ## 내장 한도 관리
 

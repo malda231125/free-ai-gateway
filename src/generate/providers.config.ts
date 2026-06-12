@@ -19,6 +19,8 @@ export interface ProviderConfig {
   limits: { rpm: number; rpd: number };
   /** 키 발급 안내 URL */
   signupUrl: string;
+  /** AI 라우터에게 제공할 모델 특성 설명 */
+  description: string;
   /** 요청에 추가로 필요한 헤더 */
   extraHeaders?: Record<string, string>;
 }
@@ -30,6 +32,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     defaultModel: 'gemini-2.5-flash',
     limits: { rpm: 10, rpd: 1500 },
     signupUrl: 'https://aistudio.google.com/apikey',
+    description: '구글 Gemini Flash. 종합 품질 최상, 멀티모달/긴 컨텍스트(100만 토큰), 한국어 우수. 복잡한 추론·번역·요약·일반 질문에 최적.',
   },
   [AiProvider.GROQ]: {
     baseUrl: 'https://api.groq.com/openai/v1',
@@ -37,6 +40,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     defaultModel: 'llama-3.3-70b-versatile',
     limits: { rpm: 30, rpd: 1000 },
     signupUrl: 'https://console.groq.com/keys',
+    description: 'Llama 3.3 70B를 초고속(200ms급) 서빙. 짧은 답변·실시간성이 중요한 작업·간단한 질문에 최적. 한국어 보통.',
   },
   [AiProvider.CEREBRAS]: {
     baseUrl: 'https://api.cerebras.ai/v1',
@@ -44,6 +48,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     defaultModel: 'gpt-oss-120b',
     limits: { rpm: 30, rpd: 1000 },
     signupUrl: 'https://cloud.cerebras.ai',
+    description: '오픈 모델(gpt-oss-120b)을 업계 최속(초당 2,000토큰)으로 서빙. 긴 출력 생성을 빠르게 받을 때 최적. 혼잡 잦음.',
   },
   [AiProvider.MISTRAL]: {
     baseUrl: 'https://api.mistral.ai/v1',
@@ -51,6 +56,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     defaultModel: 'mistral-small-latest',
     limits: { rpm: 2, rpd: 1000 },
     signupUrl: 'https://console.mistral.ai/api-keys',
+    description: 'Mistral Small. 분당 2회 제한으로 느리지만 월 한도가 매우 큼. 급하지 않은 배치성 작업에 적합. 유럽어 강점.',
   },
   [AiProvider.NVIDIA]: {
     baseUrl: 'https://integrate.api.nvidia.com/v1',
@@ -58,6 +64,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     defaultModel: 'meta/llama-3.3-70b-instruct',
     limits: { rpm: 40, rpd: 5000 },
     signupUrl: 'https://build.nvidia.com',
+    description: 'Llama 3.3 70B 등 대형 오픈모델. 무료 크레딧 소모형. 코드·기술 질문에 무난.',
   },
   [AiProvider.OPENROUTER]: {
     baseUrl: 'https://openrouter.ai/api/v1',
@@ -65,6 +72,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     defaultModel: 'google/gemma-4-26b-a4b-it:free',
     limits: { rpm: 20, rpd: 50 },
     signupUrl: 'https://openrouter.ai/settings/keys',
+    description: '여러 무료 오픈모델 중계(현재 Gemma 4). 가용성 변동 큼. 다른 후보가 없을 때 차선.',
   },
   [AiProvider.GITHUB]: {
     baseUrl: 'https://models.github.ai/inference',
@@ -72,6 +80,7 @@ export const PROVIDERS: Record<AiProvider, ProviderConfig> = {
     defaultModel: 'openai/gpt-4o-mini',
     limits: { rpm: 15, rpd: 150 },
     signupUrl: 'https://github.com/settings/tokens',
+    description: 'GPT-4o-mini. OpenAI 계열 품질, 영어/코드 강점. 일일 한도 낮아 아껴 쓰는 게 좋음.',
   },
 };
 
