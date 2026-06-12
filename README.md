@@ -44,7 +44,7 @@ curl -X POST http://localhost:3000/v1/generate \
 
 | Provider (enum) | 서비스 | 무료 한도 (대략) | 기본 모델 | 키 발급 |
 |---|---|---|---|---|
-| `GOOGLE` (기본값) | [Google AI Studio](https://aistudio.google.com) | Flash 계열 일 1,500요청, 100만 토큰 컨텍스트, 멀티모달 | `gemini-2.5-flash` | [발급](https://aistudio.google.com/apikey) |
+| `GOOGLE` (라우터 겸용) | [Google AI Studio](https://aistudio.google.com) | Flash 계열 일 1,500요청, 100만 토큰 컨텍스트, 멀티모달 | `gemini-2.5-flash` | [발급](https://aistudio.google.com/apikey) |
 | `GROQ` | [Groq](https://groq.com) | Llama 70B 분당 30회 / 일 1,000회, 초고속 추론 | `llama-3.3-70b-versatile` | [발급](https://console.groq.com/keys) |
 | `CEREBRAS` | [Cerebras](https://cloud.cerebras.ai) | 일 100만 토큰, 초당 2,000토큰(업계 최속) | `gpt-oss-120b` | [발급](https://cloud.cerebras.ai) |
 | `MISTRAL` | [Mistral La Plateforme](https://mistral.ai) | 월 10억 토큰 (분당 2회로 느림 — 배치용) | `mistral-small-latest` | [발급](https://console.mistral.ai/api-keys) |
