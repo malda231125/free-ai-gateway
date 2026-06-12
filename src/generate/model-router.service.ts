@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AiProvider, PROVIDERS } from './providers.config';
+import { RateLimiterService } from './rate-limiter.service';
+import { UsageStoreService } from './usage-store.service';
 
 /** AI 라우터가 후보 중 적합 모델을 추천. 실패 시 null을 반환하고 호출부가 정적 우선순위로 폴백한다. */
 @Injectable()
@@ -8,9 +10,15 @@ export class ModelRouterService {
   /** 추천 호출에 쓰는 빠른 모델 (본 호출보다 가볍게) */
   static readonly ROUTER_MODEL = 'gemini-2.5-flash-lite';
 
+  constructor(
+    private readonly rateLimiter: RateLimiterService,
+    private readonly usageStore: UsageStoreService,
+  ) {}
+
   async recommend(prompt: string, candidates: AiProvider[]): Promise<{ provider: AiProvider; reason: string } | null> {
-    const apiKey = process.env[PROVIDERS[AiProvider.GOOGLE].apiKeyEnv];
-    if (!apiKey || candidates.length < 2) return null;
+    if (candidates.length < 2) return null;
+    const picked = this.rateLimiter.pickKey(AiProvider.GOOGLE);
+    if (!picked) return null;
 
     const catalog = candidates
       .map((p) => `- ${p}: ${PROVIDERS[p].defaultModel} — ${PROVIDERS[p].description}`)
@@ -27,15 +35,25 @@ export class ModelRouterService {
       prompt.slice(0, 2000),
     ].join('\n');
 
+    const startedAt = Date.now();
     try {
       const res = await fetch(`${PROVIDERS[AiProvider.GOOGLE].baseUrl}/chat/completions`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${picked.key}` },
         body: JSON.stringify({
           model: ModelRouterService.ROUTER_MODEL,
           messages: [{ role: 'user', content: routerPrompt }],
           temperature: 0,
         }),
+      });
+      this.usageStore.record({
+        provider: AiProvider.GOOGLE,
+        keyIndex: picked.index,
+        model: ModelRouterService.ROUTER_MODEL,
+        endpoint: 'router',
+        status: res.ok ? 'ok' : 'error',
+        httpStatus: res.status,
+        latencyMs: Date.now() - startedAt,
       });
       if (!res.ok) return null;
       const body = await res.json();

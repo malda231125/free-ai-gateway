@@ -26,6 +26,13 @@ export class GenerateController {
     return this.service.providers();
   }
 
+  @Get('v1/usage')
+  @ApiSecurity('apiKey')
+  @ApiOperation({ summary: '최근 24시간 사용량 요약 + 최근 호출 이력 (SQLite 감사 로그)' })
+  usage() {
+    return this.service.usage();
+  }
+
   @Post('v1/chat/completions')
   @ApiSecurity('apiKey')
   @ApiOperation({ summary: 'OpenAI 호환 chat completions (model: "auto" | "GROQ" | "GROQ/모델ID", stream 지원)' })

@@ -1,8 +1,10 @@
 import { BadGatewayException, HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { GenerateDto } from './dto';
 import { AiProvider, PROVIDERS } from './providers.config';
+import { KeyPoolService } from './key-pool.service';
 import { ModelRouterService } from './model-router.service';
 import { RateLimiterService } from './rate-limiter.service';
+import { UsageStoreService } from './usage-store.service';
 
 /** AI 라우터를 못 쓸 때 사용하는 정적 우선순위 (품질·한도·가용성 종합) */
 const FALLBACK_ORDER: AiProvider[] = [
@@ -20,6 +22,8 @@ export class GenerateService {
   constructor(
     private readonly rateLimiter: RateLimiterService,
     private readonly router: ModelRouterService,
+    private readonly keyPool: KeyPoolService,
+    private readonly usageStore: UsageStoreService,
   ) {}
 
   async generate(dto: GenerateDto) {
@@ -33,20 +37,15 @@ export class GenerateService {
 
     // 미지정 시: 키 보유 + 한도 잔여 프로바이더만 후보로 → AI 추론 라우팅 → 실패 시 폴백 체인
     const candidates = FALLBACK_ORDER.filter(
-      (p) => process.env[PROVIDERS[p].apiKeyEnv] && this.rateLimiter.check(p).allowed,
+      (p) => this.keyPool.keyCount(p) > 0 && this.rateLimiter.check(p).allowed,
     );
     if (!candidates.length) {
       throw new HttpException({ message: '사용 가능한 프로바이더가 없습니다 (키 미설정 또는 전부 한도 도달).', usage: this.rateLimiter.snapshot() }, 429);
     }
 
-    let recommendation: { provider: AiProvider; reason: string } | null = null;
-    if (this.rateLimiter.check(AiProvider.GOOGLE).allowed) {
-      this.rateLimiter.consume(AiProvider.GOOGLE); // 라우터 호출도 구글 한도를 소모한다
-      recommendation = await this.router.recommend(dto.prompt, candidates);
-    }
-
+    const recommendation = await this.router.recommend(dto.prompt, candidates);
     const ordered = recommendation
-      ? [recommendation.provider, ...candidates.filter((p) => p !== recommendation!.provider)]
+      ? [recommendation.provider, ...candidates.filter((p) => p !== recommendation.provider)]
       : candidates;
 
     const attempts: Array<{ provider: AiProvider; error: string }> = [];
@@ -74,7 +73,7 @@ export class GenerateService {
 
   private assertConfigured(provider: AiProvider) {
     const config = PROVIDERS[provider];
-    if (!process.env[config.apiKeyEnv]) {
+    if (!this.keyPool.keyCount(provider)) {
       throw new ServiceUnavailableException({
         message: `${provider} API 키가 설정되지 않았습니다. 환경변수 ${config.apiKeyEnv}를 설정하세요.`,
         signupUrl: config.signupUrl,
@@ -87,10 +86,10 @@ export class GenerateService {
     if (!limit.allowed) {
       throw new HttpException(
         {
-          message: `${provider} 무료 한도(${limit.reason === 'rpm' ? '분당' : '일간'} 요청 수) 도달. ${limit.retryAfterSeconds}초 후 재시도하세요.`,
+          message: `${provider} 무료 한도 도달(${limit.reason}). ${limit.retryAfterSeconds ?? 60}초 후 재시도하세요.`,
           provider,
           usage: limit.usage,
-          retryAfterSeconds: limit.retryAfterSeconds,
+          retryAfterSeconds: limit.retryAfterSeconds ?? 60,
         },
         429,
       );
@@ -100,16 +99,16 @@ export class GenerateService {
   private async callProvider(provider: AiProvider, modelOverride: string | undefined, prompt: string) {
     const config = PROVIDERS[provider];
     this.assertConfigured(provider);
-    const apiKey = process.env[config.apiKeyEnv]!;
+    const picked = this.rateLimiter.pickKey(provider);
+    if (!picked) this.assertWithinLimit(provider); // 일관된 429 응답 생성
     const model = modelOverride || config.defaultModel;
     const startedAt = Date.now();
-    this.rateLimiter.consume(provider);
 
     const res = await fetch(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${apiKey}`,
+        authorization: `Bearer ${picked!.key}`,
         ...config.extraHeaders,
       },
       body: JSON.stringify({
@@ -120,6 +119,11 @@ export class GenerateService {
 
     const bodyText = await res.text();
     if (!res.ok) {
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers.get('retry-after')) || 60;
+        this.keyPool.reportRateLimited(provider, picked!.index, retryAfter);
+      }
+      this.usageStore.record({ provider, keyIndex: picked!.index, model, endpoint: 'generate', status: 'error', httpStatus: res.status, latencyMs: Date.now() - startedAt, error: bodyText.slice(0, 200) });
       throw new BadGatewayException({
         message: `${provider} 호출 실패 (HTTP ${res.status})`,
         provider,
@@ -132,8 +136,21 @@ export class GenerateService {
     try {
       body = JSON.parse(bodyText);
     } catch {
+      this.usageStore.record({ provider, keyIndex: picked!.index, model, endpoint: 'generate', status: 'error', httpStatus: res.status, latencyMs: Date.now() - startedAt, error: 'parse failure' });
       throw new BadGatewayException({ message: `${provider} 응답 파싱 실패`, upstream: bodyText.slice(0, 300) });
     }
+
+    this.usageStore.record({
+      provider,
+      keyIndex: picked!.index,
+      model,
+      endpoint: 'generate',
+      status: 'ok',
+      httpStatus: res.status,
+      latencyMs: Date.now() - startedAt,
+      promptTokens: body.usage?.prompt_tokens ?? null,
+      completionTokens: body.usage?.completion_tokens ?? null,
+    });
 
     return {
       provider,
@@ -159,11 +176,16 @@ export class GenerateService {
     return Object.entries(PROVIDERS).map(([name, c]) => ({
       provider: name,
       defaultModel: c.defaultModel,
-      configured: Boolean(process.env[c.apiKeyEnv]),
+      configured: this.keyPool.keyCount(name as AiProvider) > 0,
+      keys: this.keyPool.keyCount(name as AiProvider),
       gatewayLimits: c.limits,
       gatewayUsage: usage[name],
       signupUrl: c.signupUrl,
       description: c.description,
     }));
+  }
+
+  usage() {
+    return this.usageStore.summary();
   }
 }

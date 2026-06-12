@@ -115,7 +115,11 @@ print(resp.choices[0].message.content)
 
 ### `GET /v1/providers`
 
-Returns per-provider key status, gateway limits, and current usage.
+Returns per-provider key counts, gateway limits, and current usage.
+
+### `GET /v1/usage`
+
+Last-24h per-provider stats (calls, tokens, avg latency) and the 20 most recent audit-log entries.
 
 ### `GET /health`
 
@@ -131,9 +135,23 @@ Health check (always public).
 
 Specifying `provider` bypasses routing and calls that provider directly (`routing.mode: "manual"`).
 
-## Built-in Quota Management
+## Built-in Quota Management & Persistence
 
-The gateway **counts per-provider requests per minute and per day** itself, blocking with a 429 (including a retry-after hint) before you blow through a free quota. Counters are in-memory and reset on restart (designed for personal / small-scale use). Adjust the limits in [`src/generate/providers.config.ts`](src/generate/providers.config.ts).
+The gateway **counts requests per minute and per day for every provider × key**, blocking with a 429 (including a retry-after hint) before you blow through a free quota. Every call is recorded in a **SQLite audit log** (provider, key, model, status, latency, tokens), and the counters are computed from those records — so **usage survives restarts and sleep/wake cycles**. If SQLite is unavailable it falls back to in-memory tracking. Data lives in `./data/usage.db` (override with `GATEWAY_DATA_DIR`). Adjust the limits in [`src/generate/providers.config.ts`](src/generate/providers.config.ts).
+
+Check usage anytime via `GET /v1/usage` — per-provider calls/tokens/avg latency for the last 24h plus the 20 most recent calls.
+
+## Key Pooling (multiply your free quota)
+
+Register **multiple keys per provider** as a comma-separated list:
+
+```bash
+GROQ_API_KEY="gsk_key1,gsk_key2,gsk_key3"
+```
+
+- Limits scale with the pool: 3 Groq keys → 90 req/min, 3,000 req/day at the gateway level
+- Each key's usage is tracked separately; the gateway picks a key with remaining headroom (round-robin)
+- When an upstream returns 429, **only that key is put on cooldown** (respecting `retry-after`) and the next key takes over immediately
 
 ## Auth (optional, enabled via environment variables)
 

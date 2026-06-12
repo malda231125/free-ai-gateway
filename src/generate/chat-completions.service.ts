@@ -1,8 +1,10 @@
 import { BadGatewayException, BadRequestException, HttpException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { Response } from 'express';
 import { AiProvider, PROVIDERS } from './providers.config';
+import { KeyPoolService } from './key-pool.service';
 import { ModelRouterService } from './model-router.service';
 import { RateLimiterService } from './rate-limiter.service';
+import { UsageStoreService } from './usage-store.service';
 
 const FALLBACK_ORDER: AiProvider[] = [
   AiProvider.GOOGLE,
@@ -29,6 +31,8 @@ export class ChatCompletionsService {
   constructor(
     private readonly rateLimiter: RateLimiterService,
     private readonly router: ModelRouterService,
+    private readonly keyPool: KeyPoolService,
+    private readonly usageStore: UsageStoreService,
   ) {}
 
   async handle(body: any, res: Response) {
@@ -43,10 +47,17 @@ export class ChatCompletionsService {
     for (const target of targets.ordered) {
       try {
         this.assertUsable(target.provider);
-        this.rateLimiter.consume(target.provider);
-        const upstream = await this.callUpstream(target, body);
+        const picked = this.rateLimiter.pickKey(target.provider);
+        if (!picked) { this.assertUsable(target.provider); continue; }
+        const startedAt = Date.now();
+        const upstream = await this.callUpstream(target, body, picked.key);
         if (!upstream.ok) {
           const text = await upstream.text();
+          if (upstream.status === 429) {
+            const retryAfter = Number(upstream.headers.get('retry-after')) || 60;
+            this.keyPool.reportRateLimited(target.provider, picked.index, retryAfter);
+          }
+          this.usageStore.record({ provider: target.provider, keyIndex: picked.index, model: target.model, endpoint: 'chat', status: 'error', httpStatus: upstream.status, latencyMs: Date.now() - startedAt, error: text.slice(0, 200) });
           attempts.push({ provider: target.provider, model: target.model, error: `HTTP ${upstream.status}: ${text.slice(0, 200)}` });
           continue;
         }
@@ -58,9 +69,11 @@ export class ChatCompletionsService {
           attempts,
         };
         if (stream) {
+          this.usageStore.record({ provider: target.provider, keyIndex: picked.index, model: target.model, endpoint: 'chat', status: 'ok', httpStatus: 200, latencyMs: Date.now() - startedAt });
           return this.pipeSse(upstream, res, gateway);
         }
         const json = await upstream.json();
+        this.usageStore.record({ provider: target.provider, keyIndex: picked.index, model: target.model, endpoint: 'chat', status: 'ok', httpStatus: 200, latencyMs: Date.now() - startedAt, promptTokens: json.usage?.prompt_tokens ?? null, completionTokens: json.usage?.completion_tokens ?? null });
         return res.json({ ...json, gateway });
       } catch (error) {
         attempts.push({ provider: target.provider, model: target.model, error: this.errorSummary(error) });
@@ -93,19 +106,15 @@ export class ChatCompletionsService {
     }
 
     const candidates = FALLBACK_ORDER.filter(
-      (p) => process.env[PROVIDERS[p].apiKeyEnv] && this.rateLimiter.check(p).allowed,
+      (p) => this.keyPool.keyCount(p) > 0 && this.rateLimiter.check(p).allowed,
     );
     if (!candidates.length) {
       throw new HttpException({ error: { message: 'no provider available (keys missing or all quotas exhausted)', type: 'rate_limit_error' } }, 429);
     }
 
-    let recommendation: { provider: AiProvider; reason: string } | null = null;
     const lastUserMessage = [...body.messages].reverse().find((m: any) => m?.role === 'user');
     const routePrompt = typeof lastUserMessage?.content === 'string' ? lastUserMessage.content : JSON.stringify(lastUserMessage?.content ?? '');
-    if (this.rateLimiter.check(AiProvider.GOOGLE).allowed) {
-      this.rateLimiter.consume(AiProvider.GOOGLE);
-      recommendation = await this.router.recommend(routePrompt, candidates);
-    }
+    const recommendation = await this.router.recommend(routePrompt, candidates);
     const orderedProviders = recommendation
       ? [recommendation.provider, ...candidates.filter((p) => p !== recommendation!.provider)]
       : candidates;
@@ -118,7 +127,7 @@ export class ChatCompletionsService {
 
   private assertUsable(provider: AiProvider) {
     const config = PROVIDERS[provider];
-    if (!process.env[config.apiKeyEnv]) {
+    if (!this.keyPool.keyCount(provider)) {
       throw new ServiceUnavailableException({
         error: { message: `${provider} API key not configured (${config.apiKeyEnv})`, type: 'invalid_request_error' },
         signupUrl: config.signupUrl,
@@ -133,9 +142,8 @@ export class ChatCompletionsService {
     }
   }
 
-  private async callUpstream(target: ResolvedTarget, body: any) {
+  private async callUpstream(target: ResolvedTarget, body: any, apiKey: string) {
     const config = PROVIDERS[target.provider];
-    const apiKey = process.env[config.apiKeyEnv]!;
     // 게이트웨이 제어 필드만 빼고 표준 파라미터(messages/temperature/stream 등)는 그대로 전달
     const { model: _model, gateway: _gateway, ...passthrough } = body;
     return fetch(`${config.baseUrl}/chat/completions`, {
