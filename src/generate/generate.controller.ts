@@ -1,12 +1,17 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiOperation, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { GenerateDto } from './dto';
 import { GenerateService } from './generate.service';
+import { ChatCompletionsService } from './chat-completions.service';
 
 @ApiTags('gateway')
 @Controller()
 export class GenerateController {
-  constructor(private readonly service: GenerateService) {}
+  constructor(
+    private readonly service: GenerateService,
+    private readonly chatCompletions: ChatCompletionsService,
+  ) {}
 
   @Get('health')
   @ApiOperation({ summary: '헬스체크' })
@@ -19,6 +24,13 @@ export class GenerateController {
   @ApiOperation({ summary: '프로바이더별 설정/한도/사용량 조회' })
   providers() {
     return this.service.providers();
+  }
+
+  @Post('v1/chat/completions')
+  @ApiSecurity('apiKey')
+  @ApiOperation({ summary: 'OpenAI 호환 chat completions (model: "auto" | "GROQ" | "GROQ/모델ID", stream 지원)' })
+  chatCompletionsEndpoint(@Body() body: any, @Res() res: Response) {
+    return this.chatCompletions.handle(body, res);
   }
 
   @Post('v1/generate')

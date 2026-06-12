@@ -79,6 +79,30 @@ Swagger 문서: `http://localhost:3000/docs`
 > dotenv를 따로 안 쓰므로 `.env`는 셸에서 로드하거나(`export $(cat .env | xargs)`),
 > 배포 플랫폼(Render, Cloud Run 등)의 환경변수 설정을 사용하세요.
 
+## OpenAI 호환 엔드포인트 (드롭인)
+
+`POST /v1/chat/completions`는 표준 OpenAI 프로토콜을 그대로 지원합니다 — 멀티턴 `messages`, `temperature`, `stream` 등. OpenAI SDK의 base_url만 게이트웨이로 바꾸면 코드 수정 없이 동작합니다:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://your-gateway.example.com/v1",
+    api_key="게이트웨이_API_키",  # Bearer로 전송됨, x-api-key 헤더도 허용
+)
+
+resp = client.chat.completions.create(
+    model="auto",  # "auto"=AI 라우팅 | "GROQ"=프로바이더 기본 모델 | "GROQ/llama-3.3-70b-versatile"=정확히 지정
+    messages=[{"role": "user", "content": "안녕을 프랑스어로 번역해줘"}],
+)
+print(resp.choices[0].message.content)
+```
+
+- `model: "auto"`(또는 생략) → AI 라우터가 프롬프트에 맞는 프로바이더 선택
+- `model: "GROQ"` → 해당 프로바이더 기본 모델, `model: "PROVIDER/모델ID"` → 정확히 지정
+- `stream: true` → 업스트림 SSE 패스스루 (자동 라우팅과 조합 가능)
+- 응답은 표준 OpenAI 형식 + `gateway` 메타 필드(사용된 프로바이더, 라우팅 이유, 폴백 이력) — OpenAI 클라이언트는 이 필드를 무시하므로 안전합니다
+
 ## API
 
 ### `POST /v1/generate`

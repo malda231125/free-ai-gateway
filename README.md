@@ -79,6 +79,30 @@ Calling a provider without a key returns 503 with a signup URL.
 > No dotenv is bundled — load `.env` in your shell (`export $(cat .env | xargs)`)
 > or use your deployment platform's environment settings (Render, Cloud Run, etc.).
 
+## OpenAI-Compatible Endpoint (drop-in)
+
+`POST /v1/chat/completions` speaks the standard OpenAI protocol — multi-turn `messages`, `temperature`, `stream`, etc. Point any OpenAI SDK at the gateway and it just works:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://your-gateway.example.com/v1",
+    api_key="YOUR_GATEWAY_API_KEY",  # sent as Bearer; x-api-key also accepted
+)
+
+resp = client.chat.completions.create(
+    model="auto",  # "auto" = AI routing | "GROQ" = provider default | "GROQ/llama-3.3-70b-versatile" = exact model
+    messages=[{"role": "user", "content": "Translate hello into French"}],
+)
+print(resp.choices[0].message.content)
+```
+
+- `model: "auto"` (or omitted) → the AI router picks the best provider for the prompt
+- `model: "GROQ"` → that provider's default model; `model: "PROVIDER/model-id"` → exact model
+- `stream: true` → SSE passthrough from the upstream provider (works with auto routing too)
+- Responses are standard OpenAI format with an extra `gateway` field (provider used, routing reason, fallback attempts) that OpenAI clients safely ignore
+
 ## API
 
 ### `POST /v1/generate`
