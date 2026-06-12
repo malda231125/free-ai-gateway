@@ -29,7 +29,9 @@ export class ModelRouterService {
     const lines: string[] = [];
     for (const p of candidates) {
       lines.push(`- ${p} (${PROVIDERS[p].description})`);
-      for (const m of highlights.get(p) || []) lines.push(`    * ${p}/${m}`);
+      for (const m of highlights.get(p) || []) {
+        lines.push(`    * ${p}/${m.id}${m.description ? ` — ${m.description.slice(0, 60)}` : ''}`);
+      }
     }
 
     const routerPrompt = [

@@ -68,6 +68,53 @@ function Markdown({ children }) {
   );
 }
 
+/** 부분검색 가능한 모델 선택 콤보박스. options: [{value, label, desc}] */
+function ModelPicker({ options, value, onChange, width = 220, placeholder = '모델 검색…' }) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const boxRef = useRef(null);
+
+  useEffect(() => {
+    function onDoc(e) { if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  const q = query.toLowerCase();
+  const filtered = q
+    ? options.filter((o) => `${o.value} ${o.label} ${o.desc || ''}`.toLowerCase().includes(q))
+    : options;
+  const current = options.find((o) => o.value === value);
+
+  return (
+    <div ref={boxRef} style={{ position: 'relative', width }}>
+      <button type="button" onClick={() => { setOpen(!open); setQuery(''); }}
+        style={{ width: '100%', textAlign: 'left', background: '#1a1e29', color: '#e6e6e6', border: '1px solid #2c3140', borderRadius: 8, padding: '8px 10px', fontSize: 13, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        {current ? current.label : value} ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '105%', right: 0, zIndex: 50, width: Math.max(width, 300), background: '#12141c', border: '1px solid #2c3140', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+          <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} placeholder={placeholder}
+            style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', background: 'transparent', border: 'none', borderBottom: '1px solid #232838', color: '#e6e6e6', fontSize: 13, outline: 'none' }} />
+          <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+            {filtered.length === 0 && <p style={{ color: '#5b6275', fontSize: 13, textAlign: 'center', padding: 14 }}>검색 결과 없음</p>}
+            {filtered.slice(0, 100).map((o) => (
+              <div key={o.value} onClick={() => { onChange(o.value); setOpen(false); }}
+                style={{ padding: '8px 12px', cursor: 'pointer', background: o.value === value ? '#222738' : 'transparent', borderBottom: '1px solid #1a1e29' }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#1d2230'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = o.value === value ? '#222738' : 'transparent'; }}>
+                <div style={{ fontSize: 13, color: '#e6e6e6', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</div>
+                {o.desc && <div style={{ fontSize: 11.5, color: '#7d8598', marginTop: 2, lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{o.desc}</div>}
+              </div>
+            ))}
+            {filtered.length > 100 && <p style={{ color: '#5b6275', fontSize: 12, textAlign: 'center', padding: 8 }}>+{filtered.length - 100}개 더 — 검색어를 좁혀보세요</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** SSE 스트림을 읽으며 onUpdate(text, meta)를 호출 */
 async function streamChat(payload, onUpdate) {
   const res = await fetch('/api/chat', {
@@ -163,7 +210,9 @@ export default function Page() {
       fetch('/api/models').then((r) => r.json()).then((list) => {
         if (Array.isArray(list)) {
           const map = {};
-          for (const c of list) map[c.provider] = c.models || [];
+          for (const c of list) {
+            map[c.provider] = (c.models || []).map((m) => typeof m === 'string' ? { id: m, description: '' } : m);
+          }
           setCatalog(map);
         }
       }).catch(() => {});
@@ -330,17 +379,13 @@ export default function Page() {
     );
   }
 
-  const compareOptions = (
-    <>
-      <option value="auto">🧠 자동</option>
-      {Object.entries(catalog).map(([provider, models]) => (
-        <optgroup key={provider} label={provider}>
-          <option value={provider}>{provider} 기본</option>
-          {models.map((m) => <option key={m} value={`${provider}/${m}`}>{m}</option>)}
-        </optgroup>
-      ))}
-    </>
-  );
+  const compareOptions = [
+    { value: 'auto', label: '🧠 자동 (AI 라우팅)', desc: '프롬프트에 맞는 모델을 AI가 선택' },
+    ...Object.entries(catalog).flatMap(([provider, models]) => [
+      { value: provider, label: `${provider} 기본`, desc: '' },
+      ...models.map((m) => ({ value: `${provider}/${m.id}`, label: `${provider} · ${m.id}`, desc: m.description })),
+    ]),
+  ];
 
   const sidebar = (
     <aside style={{
@@ -413,9 +458,9 @@ export default function Page() {
           </div>
           {compareOn ? (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <select value={compareA} onChange={(e) => setCompareA(e.target.value)} style={{ ...selectStyle, maxWidth: 160 }}>{compareOptions}</select>
+              <ModelPicker options={compareOptions} value={compareA} onChange={setCompareA} width={170} />
               <span style={{ color: '#5b6275', fontSize: 13 }}>vs</span>
-              <select value={compareB} onChange={(e) => setCompareB(e.target.value)} style={{ ...selectStyle, maxWidth: 160 }}>{compareOptions}</select>
+              <ModelPicker options={compareOptions} value={compareB} onChange={setCompareB} width={170} />
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -424,10 +469,15 @@ export default function Page() {
                 {MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
               {model !== 'auto' && (catalog[model] || []).length > 0 && (
-                <select value={subModel} onChange={(e) => setSubModel(e.target.value)} style={{ ...selectStyle, maxWidth: 200 }}>
-                  <option value="default">기본 모델</option>
-                  {(catalog[model] || []).map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
+                <ModelPicker
+                  width={210}
+                  value={subModel}
+                  onChange={setSubModel}
+                  options={[
+                    { value: 'default', label: '기본 모델', desc: '프로바이더 추천 기본값' },
+                    ...(catalog[model] || []).map((m) => ({ value: m.id, label: m.id, desc: m.description })),
+                  ]}
+                />
               )}
             </div>
           )}

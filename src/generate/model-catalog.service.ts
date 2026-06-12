@@ -2,14 +2,58 @@ import { Injectable, Logger } from '@nestjs/common';
 import { AiProvider, PROVIDERS } from './providers.config';
 import { KeyPoolService } from './key-pool.service';
 
+export interface CatalogModel {
+  id: string;
+  description: string;
+}
+
 export interface ProviderCatalog {
   provider: AiProvider;
   defaultModel: string;
-  models: string[];
+  models: CatalogModel[];
   error?: string;
 }
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
+
+/** 모델 ID에서 패밀리를 추정해 간략 한국어 설명 생성 (업스트림 설명이 없을 때) */
+const FAMILY_DESCRIPTIONS: Array<[RegExp, string]> = [
+  [/deepseek.*v4/i, 'DeepSeek V4 — 최신 고성능 범용/추론 모델'],
+  [/deepseek.*r1/i, 'DeepSeek-R1 — 깊은 사고가 필요한 추론 특화'],
+  [/deepseek.*coder/i, 'DeepSeek Coder — 코드 생성 특화'],
+  [/deepseek/i, 'DeepSeek — 고성능 오픈 모델'],
+  [/qwen.*coder/i, 'Qwen Coder — 코드 생성 특화'],
+  [/qwen/i, 'Qwen — 알리바바의 다국어 강점 오픈 모델'],
+  [/llama-?4/i, 'Llama 4 — Meta 최신 멀티모달 오픈 모델'],
+  [/llama-?3\.3/i, 'Llama 3.3 70B — Meta 범용 오픈 모델, 균형 좋음'],
+  [/llama/i, 'Llama — Meta 오픈 모델'],
+  [/gpt-oss/i, 'GPT-OSS — OpenAI 오픈웨이트 추론 모델'],
+  [/nemotron.*ultra/i, 'Nemotron Ultra — NVIDIA 대형 고성능'],
+  [/nemotron.*nano/i, 'Nemotron Nano — NVIDIA 경량 고속'],
+  [/nemotron/i, 'Nemotron — NVIDIA 튜닝 모델'],
+  [/gemma/i, 'Gemma — 구글 경량 오픈 모델'],
+  [/gemini/i, 'Gemini — 구글 멀티모달'],
+  [/mistral-large/i, 'Mistral Large — 미스트랄 플래그십'],
+  [/mixtral/i, 'Mixtral — MoE 구조 효율 모델'],
+  [/mistral/i, 'Mistral — 효율 좋은 유럽산 모델'],
+  [/codestral/i, 'Codestral — 미스트랄 코드 특화'],
+  [/glm/i, 'GLM — Zhipu 고성능 모델'],
+  [/kimi/i, 'Kimi — Moonshot 긴 컨텍스트 강점'],
+  [/phi/i, 'Phi — MS 경량 고효율'],
+  [/granite/i, 'Granite — IBM 기업용 모델'],
+  [/gpt-4\.1/i, 'GPT-4.1 — 코딩/장문 강화'],
+  [/gpt-4o-mini/i, 'GPT-4o mini — 빠르고 저렴한 범용'],
+  [/gpt-4o/i, 'GPT-4o — OpenAI 멀티모달 범용'],
+  [/o[134](-|$)/i, 'OpenAI o시리즈 — 추론 특화'],
+  [/seed|doubao/i, 'ByteDance 계열 모델'],
+];
+
+function familyDescription(id: string): string {
+  for (const [pattern, desc] of FAMILY_DESCRIPTIONS) {
+    if (pattern.test(id)) return desc;
+  }
+  return '';
+}
 const MAX_MODELS_PER_PROVIDER = 80;
 
 /** 라우터에게 보여줄 주목 모델 패턴 (지능/특화 순) */
@@ -40,19 +84,22 @@ export class ModelCatalogService {
   }
 
   /** AI 라우터 프롬프트용: 프로바이더별 주목 모델 최대 limit개 (기본 모델은 항상 포함) */
-  async highlights(providers: AiProvider[], limit = 6): Promise<Map<AiProvider, string[]>> {
-    const out = new Map<AiProvider, string[]>();
+  async highlights(providers: AiProvider[], limit = 6): Promise<Map<AiProvider, CatalogModel[]>> {
+    const out = new Map<AiProvider, CatalogModel[]>();
     let data: ProviderCatalog[] = [];
     try {
       data = await this.catalog();
     } catch { /* 카탈로그 실패 시 기본 모델만 */ }
     for (const provider of providers) {
       const entry = data.find((c) => c.provider === provider);
-      const picks: string[] = [PROVIDERS[provider].defaultModel];
+      const picks: CatalogModel[] = [
+        entry?.models.find((m) => m.id === PROVIDERS[provider].defaultModel)
+          || { id: PROVIDERS[provider].defaultModel, description: '' },
+      ];
       if (entry) {
         for (const pattern of HIGHLIGHT_PATTERNS) {
           if (picks.length >= limit) break;
-          const found = entry.models.find((m) => pattern.test(m) && !picks.includes(m));
+          const found = entry.models.find((m) => pattern.test(m.id) && !picks.some((x) => x.id === m.id));
           if (found) picks.push(found);
         }
       }
@@ -66,7 +113,7 @@ export class ModelCatalogService {
     try {
       const data = await this.catalog();
       const entry = data.find((c) => c.provider === provider);
-      return Boolean(entry?.models.includes(model));
+      return Boolean(entry?.models.some((m) => m.id === model));
     } catch {
       return false;
     }
@@ -83,47 +130,73 @@ export class ModelCatalogService {
     const config = PROVIDERS[provider];
     const base = { provider, defaultModel: config.defaultModel };
     const key = this.keyPool.keys(provider)[0];
-    // GitHub Models는 OpenAI 호환 /models 대신 별도 카탈로그 엔드포인트를 쓴다
+    const fallback = [{ id: config.defaultModel, description: familyDescription(config.defaultModel) }];
+    // GitHub은 별도 카탈로그(설명 포함), Google은 네이티브 엔드포인트(설명 포함) 사용
     const url = provider === AiProvider.GITHUB
       ? 'https://models.github.ai/catalog/models'
-      : `${config.baseUrl}/models`;
+      : provider === AiProvider.GOOGLE
+        ? 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=200'
+        : `${config.baseUrl}/models`;
+    const headers: Record<string, string> = provider === AiProvider.GOOGLE
+      ? { 'x-goog-api-key': key }
+      : { authorization: `Bearer ${key}` };
     try {
-      const res = await fetch(url, {
-        headers: { authorization: `Bearer ${key}` },
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (!res.ok) return { ...base, models: [config.defaultModel], error: `HTTP ${res.status}` };
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return { ...base, models: fallback, error: `HTTP ${res.status}` };
       const body: any = await res.json();
       const list = Array.isArray(body) ? body : body.data || body.models || [];
-      const ids: string[] = list
-        .map((m: any) => String(m.id || m.name || ''))
-        .filter(Boolean);
-      const filtered = this.filterForProvider(provider, ids);
-      const models = [...new Set([config.defaultModel, ...filtered])].slice(0, MAX_MODELS_PER_PROVIDER);
+      const raw: CatalogModel[] = list
+        .map((m: any) => ({
+          id: String(m.id || m.name || '').replace(/^models\//, ''),
+          description: this.describe(provider, m),
+        }))
+        .filter((m: CatalogModel) => m.id);
+      const filtered = this.filterForProvider(provider, raw);
+      const seen = new Set<string>();
+      const models: CatalogModel[] = [];
+      const defaultEntry = filtered.find((m) => m.id === config.defaultModel)
+        || { id: config.defaultModel, description: familyDescription(config.defaultModel) };
+      for (const m of [defaultEntry, ...filtered]) {
+        if (seen.has(m.id)) continue;
+        seen.add(m.id);
+        models.push(m);
+        if (models.length >= MAX_MODELS_PER_PROVIDER) break;
+      }
       return { ...base, models };
     } catch (error) {
       this.logger.warn(`${provider} catalog fetch failed: ${error instanceof Error ? error.message : error}`);
-      return { ...base, models: [config.defaultModel], error: 'fetch failed' };
+      return { ...base, models: fallback, error: 'fetch failed' };
     }
   }
 
-  private filterForProvider(provider: AiProvider, ids: string[]): string[] {
+  /** 업스트림이 주는 설명을 우선 쓰고, 없으면 모델 패밀리 기반 설명 생성 */
+  private describe(provider: AiProvider, m: any): string {
+    const upstream = String(m.description || m.summary || '').replace(/\s+/g, ' ').trim();
+    if (upstream) return upstream.slice(0, 140);
+    const id = String(m.id || m.name || '');
+    const parts: string[] = [];
+    const family = familyDescription(id);
+    if (family) parts.push(family);
+    if (m.owned_by && !/system|user/i.test(String(m.owned_by))) parts.push(`${m.owned_by} 제공`);
+    if (m.context_window) parts.push(`컨텍스트 ${Math.round(Number(m.context_window) / 1024)}K`);
+    return parts.join(' · ').slice(0, 140);
+  }
+
+  private filterForProvider(provider: AiProvider, models: CatalogModel[]): CatalogModel[] {
+    const byId = (fn: (id: string) => boolean) => models.filter((m) => fn(m.id));
     switch (provider) {
       case AiProvider.GOOGLE:
-        return ids
-          .map((id) => id.replace(/^models\//, ''))
-          .filter((id) => /^gemini-/.test(id))
-          .filter((id) => !/(embedding|tts|image|audio|live|veo|imagen|robotics|computer-use)/i.test(id));
+        return byId((id) => /^gemini-/.test(id) && !/(embedding|tts|image|audio|live|veo|imagen|robotics|computer-use)/i.test(id));
       case AiProvider.OPENROUTER:
-        return ids.filter((id) => id.endsWith(':free'));
+        return byId((id) => id.endsWith(':free'));
       case AiProvider.MISTRAL:
-        return ids.filter((id) => !/(embed|moderation|ocr|transcribe|voxtral)/i.test(id));
+        return byId((id) => !/(embed|moderation|ocr|transcribe|voxtral)/i.test(id));
       case AiProvider.NVIDIA:
-        return ids.filter((id) => !/(embed|rerank|retriever|nemoguard|safety|clip|vista|parakeet|fastpitch)/i.test(id));
+        return byId((id) => !/(embed|rerank|retriever|nemoguard|safety|clip|vista|parakeet|fastpitch)/i.test(id));
       case AiProvider.GROQ:
-        return ids.filter((id) => !/(whisper|tts|guard)/i.test(id));
+        return byId((id) => !/(whisper|tts|guard)/i.test(id));
       default:
-        return ids;
+        return models;
     }
   }
 }
